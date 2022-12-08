@@ -44,7 +44,7 @@ def timelog(callback):
             logger.info('[phase:{}] --------------END'.format(callback.__name__))
             logger.info(f'total time: {total_time} | cpu time: {cpu_time}')
     
-    # let the decorator can be modified to function name
+    # let the decorator modify the function name
     wrapper.__name__ = callback.__name__
     return wrapper
 
