@@ -48,4 +48,20 @@ def timelog(callback):
     wrapper.__name__ = callback.__name__
     return wrapper
 
+class timelog2(object):
+    def __init__(self, func):
+        self.func = func
+        self.logger = log()
+        
+    def __call__(self, *args):
+        try:
+            start_time = time.time()
+            self.logger.info(f'[phase:{self.func.__name__}] --------------START')
+            self.func(*args)
+        finally:
+            total_time = time.time() - start_time
+            self.logger.info(f'[phase:{self.func.__name__}] --------------END')
+            self.logger.info(f'total time: {total_time}')
+
+            
 #TODO:添加timeout功能(將函數式限制執行時間)
