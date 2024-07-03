@@ -1,67 +1,87 @@
-"""development tools"""
-import logging
-import sys
 import os
+import sys
 import time
+import logging
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+from functools import wraps, partial
 
-def log():
-    logger = logging.getLogger()
-    logger.setLevel(logging.INFO)
+# Create a global ThreadPoolExecutor instance
+executor = ThreadPoolExecutor(max_workers=10)
+
+
+def get_logger():
+    """Set logging and return an instance of logger."""
+    _logger = logging.getLogger()
+    _logger.setLevel(logging.DEBUG)
     stdout_handler = logging.StreamHandler(sys.stdout)
-    logger.addHandler(stdout_handler)
-    # output Logger file
-    log_path = './log_file'
-    log_name = 'utility.log'
+    _logger.addHandler(stdout_handler)
+    # writing the log to the file.
+    curr_date = time.strftime("%m%d")
+    log_path = './Logger'
+    log_name = f'log_{curr_date}.log'
     log_file = f'{log_path}/{log_name}'
     os.makedirs(log_path, exist_ok=True)
     file_handler = logging.FileHandler(log_file)
     formatter = logging.Formatter("%(asctime)s - %(levelname)s: %(message)s")
     file_handler.setFormatter(formatter)
-    logger.addHandler(file_handler)
-
-    return logger
-
+    _logger.addHandler(file_handler)
+    return _logger
 
 
-def timelog(callback):
-    """calculate execution time"""
-    def wrapper(arg = None):
-        logger = log()
+def timelog(func):
+    """Decorator for recording function execution time."""
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        start_time = time.time()
         try:
-            # reocrd start time
-            cpu_time_start = time.process_time() # Not include time.sleep()
-            time_start = time.time() # Include sleep()
-            # print START log
-            logger.info('[phase:{}] --------------START'.format(callback.__name__))
-            # call function
-            callback(arg)
-
+            print(f'[Phase: {func.__name__}] ------------- START')
+            return func(*args, **kwargs)
         finally:
-            #record end time
-            cpu_time = time.process_time() - cpu_time_start
-            total_time = time.time() - time_start
-            # print END log
-            logger.info('[phase:{}] --------------END'.format(callback.__name__))
-            logger.info(f'total time: {total_time} | cpu time: {cpu_time}')
-    
-    # let the decorator modify the function name
-    wrapper.__name__ = callback.__name__
+            elapsed_time = time.time() - start_time
+            print(f"[Phase: {func.__name__}] ------------- END in {elapsed_time:.3f}(s)")
     return wrapper
 
-class timelog2(object):
-    def __init__(self, func):
-        self.func = func
-        self.logger = log()
-        
-    def __call__(self, *args):
-        try:
-            start_time = time.time()
-            self.logger.info(f'[phase:{self.func.__name__}] --------------START')
-            self.func(*args)
-        finally:
-            total_time = time.time() - start_time
-            self.logger.info(f'[phase:{self.func.__name__}] --------------END')
-            self.logger.info(f'total time: {total_time}')
 
-            
-#TODO:添加timeout功能(將函數式限制執行時間)
+def asyncify(sync_func):
+    """Decorator to make a synchronous function callable in an async context."""
+    @wraps(sync_func)
+    async def wrapper(*args, **kwargs):
+        loop = asyncio.get_event_loop()
+        # Create a partial function that includes both args and kwargs
+        func = partial(sync_func, *args, **kwargs)
+        return await loop.run_in_executor(None, func)
+    return wrapper
+
+
+def syncify(async_func):
+    """Decorator to make an async function callable from a sync context."""
+    @wraps(async_func)
+    def wrapper(*args, **kwargs):
+        try:
+            # Check if there's an existing running event loop
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop and loop.is_running():
+            # If the loop is running, use run_coroutine_threadsafe to avoid blocking the loop
+            future = asyncio.run_coroutine_threadsafe(async_func(*args, **kwargs), loop)
+            return future.result()
+        else:
+            return asyncio.run(async_func(*args, **kwargs))
+    return wrapper
+
+
+def fork_thread(func):
+    """Decorator for launching parallel tasks."""
+    @wraps(func)
+    def wrapper(*wrap_args, **wrap_kwargs):
+        def run_func(*func_args, **func_kwargs):
+            try:
+                print(f'Thread fork[{func.__name__}] start')
+                return func(*func_args, **func_kwargs)
+            except Exception as e:
+                print(f"Thread exception in function [{func.__name__}]: {e}")
+        return executor.submit(run_func, *wrap_args, **wrap_kwargs)
+    return wrapper
